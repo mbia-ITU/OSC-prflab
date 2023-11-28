@@ -41,6 +41,9 @@ extern student_t student;
 #define MAX_DIM 8192 /* 1024 + 256 */ // W: bigger arrays now, removed the unexplained +256
 #define ODD_DIM 96   /* not a power of 2 */
 
+/* Margin of error for blend calculation */
+#define EPSILON 5 // a very generous error margin
+
 /* fast versions of min and max */
 #define min(a,b) (a < b ? a : b)
 #define max(a,b) (a > b ? a : b)
@@ -219,6 +222,14 @@ static int compare_pixels(pixel p1, pixel p2)
 	(p1.alpha != p2.alpha);
 }
 
+static int compare_pixels_epsilon(pixel p1, pixel p2, unsigned short epsilon) 
+{
+    return 
+	( abs( (int)p1.red   - (int)p2.red   ) > epsilon ) || 
+	( abs( (int)p1.green - (int)p2.green ) > epsilon ) || 
+	( abs( (int)p1.blue  - (int)p2.blue  ) > epsilon ) || 
+	( abs( (int)p1.alpha - (int)p2.alpha ) > epsilon );
+}
 
 /* Make sure the orig array is unchanged */
 static int check_orig(int dim) 
@@ -237,14 +248,15 @@ static int check_orig(int dim)
 
 static pixel check_blended_pixel(int dim, int i, int j, pixel *src) {
     pixel result;
-    float a = src[RIDX(i,j,dim)].alpha / USHRT_MAX;
+    float a = ( (float)(src[RIDX(i,j,dim)].alpha) ) / USHRT_MAX;
 
     // we pick the pixel at RIDX(0,0,dim) to be the background pixel.
     // it's randomly generated.
+    pixel bgc = src[RIDX(0,0,dim)];
     
-    result.red   = (a * src[RIDX(i,j,dim)].red  ) + ( (1 - a) * src[RIDX(0,0,dim)].red  );
-    result.green = (a * src[RIDX(i,j,dim)].green) + ( (1 - a) * src[RIDX(0,0,dim)].green);
-    result.blue  = (a * src[RIDX(i,j,dim)].blue) +  ( (1 - a) * src[RIDX(0,0,dim)].blue );
+    result.red   = (a * src[RIDX(i,j,dim)].red  ) + ( (1 - a) * bgc.red  );
+    result.green = (a * src[RIDX(i,j,dim)].green) + ( (1 - a) * bgc.green);
+    result.blue  = (a * src[RIDX(i,j,dim)].blue) +  ( (1 - a) * bgc.blue );
     result.alpha = USHRT_MAX; // opaque
  
     return result;
@@ -268,7 +280,7 @@ static int check_blend(int dim) {
     for (i = 0; i < dim; i++) {
 	for (j = 0; j < dim; j++) {
 	    pixel blended = check_blended_pixel(dim, i, j, orig);
-	    if (compare_pixels(result[RIDX(i,j,dim)], blended)) {
+	    if (compare_pixels_epsilon(result[RIDX(i,j,dim)], blended, EPSILON)) {
 		err++;
 		badi = i;
 		badj = j;
@@ -1211,26 +1223,6 @@ int main(int argc, char *argv[])
 	smooth_baseline_cpes[3] = S8192;
     }
 
-    /* Print what is being benchmarked */
-    if ( bench_rotate ) {
-	printf("Benchmarking rotate...\n");
-    }
-    if ( bench_rotate_t ) {
-	printf("Benchmarking rotate_t...\n");
-    }
-    if ( bench_blend ) {
-	printf("Benchmarking blend_t...\n");
-    }
-    if ( bench_blend_v ) {
-	printf("Benchmarking blend_v...\n");
-    }
-    if ( bench_smooth ) {
-	printf("Benchmarking smooth...\n");
-    }
-    if ( bench_rotate || bench_rotate_t || bench_blend || bench_blend_v || bench_smooth ) {
-	printf("\n");
-    }
-    
     srand(seed);
 
     /* 
@@ -1238,11 +1230,13 @@ int main(int argc, char *argv[])
      * the rotate(), rotate_t(), blend(), blend_v(), and smooth() functions.
      */
     if (autograder) {
-	bench_rotate = 1;
-	bench_rotate_t = 1;
-	bench_blend = 1;
-	bench_blend_v = 1;
-	bench_rotate = 1;
+	if ( ! bench_rotate && ! bench_rotate_t && ! bench_blend && ! bench_blend_v && ! bench_smooth ) {
+	    bench_rotate = 1;
+	    bench_rotate_t = 1;
+	    bench_blend = 1;
+	    bench_blend_v = 1;
+	    bench_smooth = 1;
+	}
 	
 	if ( bench_rotate ) {
 	    rotate_benchmark_count = 1;
@@ -1305,36 +1299,46 @@ int main(int argc, char *argv[])
 
 	    if (flag == 'R') {
 		for(i=0; i<rotate_benchmark_count; i++) {
-		    if (strcmp(benchmarks_rotate[i].description, func_name) == 0)
+		    if (strcmp(benchmarks_rotate[i].description, func_name) == 0) {
+			bench_rotate = 1;
 			benchmarks_rotate[i].valid = 1;
+		    }
 		}
 	    }
 	    else
 	    if (flag == 'T') {
 		for(i=0; i<rotate_t_benchmark_count; i++) {
-		    if (strcmp(benchmarks_rotate_t[i].description, func_name) == 0)
+		    if (strcmp(benchmarks_rotate_t[i].description, func_name) == 0) {
+			bench_rotate_t = 1;
 			benchmarks_rotate_t[i].valid = 1;
+		    }
 		}
 	    }
 	    else
 	    if (flag == 'B') {
 		for(i=0; i<blend_benchmark_count; i++) {
-		    if (strcmp(benchmarks_blend[i].description, func_name) == 0)
+		    if (strcmp(benchmarks_blend[i].description, func_name) == 0) {
+			bench_blend = 1;
 			benchmarks_blend[i].valid = 1;
+		    }
 		}
 	    }
 	    else
 	    if (flag == 'V') {
 		for(i=0; i<blend_v_benchmark_count; i++) {
-		    if (strcmp(benchmarks_blend_v[i].description, func_name) == 0)
+		    if (strcmp(benchmarks_blend_v[i].description, func_name) == 0) {
+			bench_blend_v = 1;
 			benchmarks_blend_v[i].valid = 1;
+		    }
 		}
 	    }
 	    else
 	    if (flag == 'S') {
 		for(i=0; i<smooth_benchmark_count; i++) {
-		    if (strcmp(benchmarks_smooth[i].description, func_name) == 0)
+		    if (strcmp(benchmarks_smooth[i].description, func_name) == 0) {
+			bench_smooth = 1;
 			benchmarks_smooth[i].valid = 1;
+		    }
 		}
 	    }      
 	}
@@ -1347,6 +1351,14 @@ int main(int argc, char *argv[])
      * test all of the functions
      */
     else { /* set all valid flags to 1 */
+	if ( ! bench_rotate && ! bench_rotate_t && ! bench_blend && ! bench_blend_v && ! bench_smooth ) {
+	    bench_rotate = 1;
+	    bench_rotate_t = 1;
+	    bench_blend = 1;
+	    bench_blend_v = 1;
+	    bench_smooth = 1;
+	}
+
 	if ( bench_rotate ) {
 	    for (i = 0; i < rotate_benchmark_count; i++)
 		benchmarks_rotate[i].valid = 1;
@@ -1375,30 +1387,35 @@ int main(int argc, char *argv[])
     set_fcyc_compensate(1); /* try to compensate for timer overhead */
 
     if ( bench_rotate ) {
+	printf("Benchmarking rotate...\n");
 	for (i = 0; i < rotate_benchmark_count; i++) {
 	    if (benchmarks_rotate[i].valid)
 		test_rotate(i);
 	}
     }
     if ( bench_rotate_t ) {
+	printf("Benchmarking rotate_t...\n");
 	for (i = 0; i < rotate_t_benchmark_count; i++) {
 	    if (benchmarks_rotate_t[i].valid)
 		test_rotate_t(i);
 	}
     }
     if ( bench_blend ) {
+	printf("Benchmarking blend...\n");
 	for (i = 0; i < blend_benchmark_count; i++) {
 	    if (benchmarks_blend[i].valid)
 		test_blend(i);
 	}
     }
     if ( bench_blend_v ) {
+	printf("Benchmarking blend_v...\n");
 	for (i = 0; i < blend_v_benchmark_count; i++) {
 	    if (benchmarks_blend_v[i].valid)
 		test_blend_v(i);
 	}
     }
     if ( bench_smooth ) {
+	printf("Benchmarking smooth...\n");
 	for (i = 0; i < smooth_benchmark_count; i++) {
 	    if (benchmarks_smooth[i].valid)
 		test_smooth(i);
@@ -1427,5 +1444,6 @@ int main(int argc, char *argv[])
 	}
     }
 
+    printf("\n");
     return 0;
 }
